@@ -13,12 +13,13 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "ts-morph": "^24.0.0",
-    "ollama": "^0.5.11",
-    "zod": "^3.23.8",
-    "yaml": "^2.6.1",
+    "@playwright/test": "^1.54.2",
     "chalk": "^5.3.0",
-    "commander": "^12.1.0"
+    "commander": "^12.1.0",
+    "ollama": "^0.5.11",
+    "ts-morph": "^24.0.0",
+    "yaml": "^2.6.1",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",

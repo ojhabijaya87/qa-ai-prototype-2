@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ES2022",
-    "moduleResolution": "node",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM"],
     "strict": true,
     "esModuleInterop": true,
@@ -10,7 +10,16 @@
     "resolveJsonModule": true,
     "noEmit": true,
     "isolatedModules": true,
-    "allowImportingTsExtensions": false
+    "allowImportingTsExtensions": false,
+    "types": ["node"]
   },
-  "include": ["pages/**/*.ts", "fixtures/**/*.ts", "utils/**/*.ts", "test-data/**/*.ts", "types/**/*.ts", "tests/**/*.ts", "config/**/*.ts"]
+  "include": [
+    "pages/**/*.ts",
+    "fixtures/**/*.ts",
+    "utils/**/*.ts",
+    "test-data/**/*.ts",
+    "types/**/*.ts",
+    "tests/**/*.ts",
+    "config/**/*.ts"
+  ]
 }

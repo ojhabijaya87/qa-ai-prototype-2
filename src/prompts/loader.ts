@@ -35,6 +35,8 @@ export function assemblePrompt(opts: {
   contextMarkdown: string;
   userRequest: string;
   previousErrors?: string;
+  /** When true, the prompt tells the model it may emit a patch block. */
+  pomPatchesAllowed?: boolean;
 }): AssembledPrompt {
   const prompt = loadSystemPrompt();
 
@@ -42,6 +44,20 @@ export function assemblePrompt(opts: {
   userParts.push("# Available framework context\n");
   userParts.push(opts.contextMarkdown);
   userParts.push("");
+
+  // Surface the patch flag explicitly so the model's prompt-side decision
+  // matches the harness's runtime setting. This is the single switch that
+  // turns the "When the POM is missing what you need" section on or off.
+  userParts.push("# Configuration");
+  userParts.push(`pomPatchesAllowed: ${opts.pomPatchesAllowed ? "true" : "false"}`);
+  if (!opts.pomPatchesAllowed) {
+    userParts.push(
+      "Patches are disabled for this generation. Use ONLY the methods and locators present in the catalogue. " +
+      "If the test would need something that isn't available, prefer a less-specific assertion using what exists."
+    );
+  }
+  userParts.push("");
+
   userParts.push("# Your task");
   userParts.push(opts.userRequest);
 

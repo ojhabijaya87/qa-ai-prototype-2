@@ -16,6 +16,35 @@ describe("validateGeneratedTest", () => {
     expect(result.errors.find((e) => e.rule === "no-raw-locator")).toBeTruthy();
   });
 
+  it("flags bare-tag locators like locator('article')", () => {
+    const code = `
+      import { test } from '../fixtures/checkout.fixture';
+      test.describe('checkout', () => {
+        test('foo @web @checkout @smoke', async ({ catalogPage }) => {
+          const card = await catalogPage.grid.locator('article').first();
+          await card.click();
+        });
+      });
+    `;
+    const result = validateGeneratedTest(code);
+    expect(result.ok).toBe(false);
+    expect(result.errors.find((e) => e.rule === "no-raw-locator")).toBeTruthy();
+  });
+
+  it("allows locator() with [data-testid=...] attribute selector", () => {
+    const code = `
+      import { test, expect } from '../fixtures/checkout.fixture';
+      test.describe('checkout', () => {
+        test('foo @web @checkout @smoke', async ({ page }) => {
+          const all = page.locator('[data-testid="product-card"]');
+          await expect(all).toHaveCount(3);
+        });
+      });
+    `;
+    const result = validateGeneratedTest(code);
+    expect(result.errors.filter((e) => e.severity === "error" && e.rule === "no-raw-locator")).toHaveLength(0);
+  });
+
   it("flags hard waits", () => {
     const code = `
       import { test } from '../fixtures/checkout.fixture';
@@ -72,5 +101,33 @@ describe("validateGeneratedTest", () => {
     const result = validateGeneratedTest(code);
     expect(result.errors.find((e) => e.rule === "missing-tags")).toBeTruthy();
     expect(result.errors.find((e) => e.rule === "missing-tags")?.severity).toBe("warn");
+  });
+
+  it("flags POM expect/verify/assert methods at the call site", () => {
+    const code = `
+      import { test, expect } from '../../fixtures/checkout.fixture';
+      test.describe('checkout', () => {
+        test('foo @web @checkout @priority-high', async ({ orderConfirmationPage }) => {
+          await orderConfirmationPage.expectVisaPayment();
+        });
+      });
+    `;
+    const result = validateGeneratedTest(code);
+    expect(result.errors.find((e) => e.rule === "assertions-at-test-level")).toBeTruthy();
+    // It's a warning, not a hard error — the file still passes.
+    expect(result.ok).toBe(true);
+  });
+
+  it("does not flag plain expect() assertions", () => {
+    const code = `
+      import { test, expect } from '../../fixtures/checkout.fixture';
+      test.describe('checkout', () => {
+        test('foo @web @checkout @priority-high', async ({ orderConfirmationPage }) => {
+          await expect(orderConfirmationPage.paymentMethod).toContainText('Visa');
+        });
+      });
+    `;
+    const result = validateGeneratedTest(code);
+    expect(result.errors.find((e) => e.rule === "assertions-at-test-level")).toBeFalsy();
   });
 });

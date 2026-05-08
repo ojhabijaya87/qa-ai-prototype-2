@@ -1,0 +1,20 @@
+{
+  "name": "looksy-test-framework",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Sample Playwright framework targeting Looksy. Used by the AI prototype as a --repo target. Mirrors the conventions of the real core-automation-playwright-ts framework.",
+  "scripts": {
+    "test": "playwright test --config=config/playwright.config.ts",
+    "test:ui": "playwright test --config=config/playwright.config.ts --ui",
+    "test:install": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^22.9.0",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
