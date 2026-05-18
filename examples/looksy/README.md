@@ -70,7 +70,18 @@ catch it and trigger a retry.
 ## Running the reference tests against Looksy
 
 The reference tests in `tests/checkout.spec.ts` are real, runnable
-Playwright tests. To execute them:
+Playwright tests. The framework has its own `package.json`, so install
+its dependencies first (this gives your editor proper IntelliSense
+too — without it, you'll see `Cannot find module '@playwright/test'`
+errors in the example files):
+
+```bash
+cd /path/to/qa-ai-prototype/examples/looksy
+npm install
+npx playwright install chromium    # one-off
+```
+
+Then run:
 
 ```bash
 # Terminal 1 — start Looksy
@@ -78,15 +89,15 @@ cd /path/to/looksy-shop
 npm run dev
 
 # Terminal 2 — run the tests
-cd /path/to/qa-ai-prototype
-npx playwright test \
-  --config=examples/looksy/config/playwright.config.ts
+cd /path/to/qa-ai-prototype/examples/looksy
+npm test
 ```
 
-You'll need Playwright's chromium browser. If not installed yet:
+Or from the prototype root, point Playwright at the example's config:
 
 ```bash
-npx playwright install chromium
+cd /path/to/qa-ai-prototype
+npx playwright test --config=examples/looksy/config/playwright.config.ts
 ```
 
 ## When to swap to your real framework

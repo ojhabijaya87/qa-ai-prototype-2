@@ -1,39 +1,217 @@
 # QA AI prototype — Phase 0
 
 A pure open-source, locally-runnable prototype for generating
-framework-aligned Playwright tests using a small Qwen Coder model via
-Ollama.
+framework-aligned Playwright tests using Qwen3-Coder via Ollama.
 
-This validates the **harness loop** before any infrastructure spend:
+This validates the full **harness loop** before any infrastructure spend:
 
-- ts-morph extracts a structured catalogue from your framework repo
-- A context builder selects relevant POMs, fixtures, and utils for a request
-- A YAML-versioned system prompt encodes framework conventions
-- The harness calls Ollama, validates the output, retries with the error fed back
-- Static validators enforce the hard rules (no raw selectors, no hard waits, fixture imports)
+- **ts-morph extracts a catalogue** from your framework — POMs, fixtures,
+  utilities, **enum-like types, named-constant catalogues, existing tests**
+- A **live-app crawler** auto-discovers routes (sitemap → BFS) and pulls
+  every interactable element with multi-signal IDs (testid, role, accessible
+  name, label, placeholder, alt, title, text). Descends into **iframes**
+  and **shadow DOM**.
+- The **context builder** picks the slice of catalogue + crawl + 3 most
+  similar existing tests and renders it into a markdown prompt
+- The **harness** calls Ollama, runs **layered validators** on the output
+  (static → compile → dry-compile), and retries with errors fed back
+- A versioned **system prompt** encodes framework conventions
 
-Everything runs on your laptop. No cloud, no paid API, no GPU required.
+Everything runs on your laptop. No cloud, no paid API. A GPU isn't strictly
+required but is recommended on the 30B model — see [Prerequisites](#prerequisites).
 
 ## Table of contents
 
+- [Architecture at a glance](#architecture-at-a-glance)
+- [The five-layer context strategy](#the-five-layer-context-strategy)
+- [Project structure](#project-structure)
+- [Per-file roles](#per-file-roles)
 - [Prerequisites](#prerequisites)
 - [Install](#install)
-- [Quick start: run against the bundled Looksy framework](#quick-start-run-against-the-bundled-looksy-framework)
+- [Quick start](#quick-start)
 - [Writing a request](#writing-a-request)
-- [Reading and improving the output](#reading-and-improving-the-output)
+- [Reading the validator results](#reading-the-validator-results)
 - [Swap to your real framework when ready](#swap-to-your-real-framework-when-ready)
-- [Project structure](#project-structure)
 - [Architecture mapping](#architecture-mapping)
 - [Tests](#tests)
-- [What's deliberately not here yet](#whats-deliberately-not-here-yet)
 - [Next concrete steps](#next-concrete-steps)
+
+## Architecture at a glance
+
+```
+   ┌──────────────────────────────────────────────────────────────────┐
+   │                       USER INPUT                                 │
+   │  --repo /path/to/framework      --request "guest checkout..."    │
+   │  --app-url http://localhost:5173                                 │
+   └────────┬─────────────────────────────────────┬───────────────────┘
+            │                                     │
+            ▼                                     ▼
+   ┌───────────────────┐                ┌──────────────────────┐
+   │  CATALOGUE        │                │  CRAWLER             │
+   │  EXTRACTOR        │                │  (Playwright)        │
+   │  (ts-morph)       │                │                      │
+   │                   │                │  Discovery:          │
+   │  - POMs           │                │   sitemap → BFS      │
+   │  - Fixtures       │                │                      │
+   │  - Utilities      │                │  Per route:          │
+   │  - Enum-like types│                │   - testid           │
+   │  - Named const    │                │   - role + name      │
+   │    catalogues     │                │   - label / placeh   │
+   │  - Existing tests │                │   - alt / title      │
+   │                   │                │   - text             │
+   │                   │                │   - aria snapshot    │
+   │                   │                │                      │
+   │                   │                │  Frames + Shadow DOM │
+   └─────────┬─────────┘                └──────────┬───────────┘
+             │                                     │
+             └──────────────┬──────────────────────┘
+                            ▼
+                  ┌────────────────────────┐
+                  │  CONTEXT BUILDER       │
+                  │                        │
+                  │  - Filter to domain    │
+                  │  - Rank top 3 similar  │
+                  │    existing tests by   │
+                  │    keyword overlap     │
+                  │  - Render markdown     │
+                  │    prompt sections     │
+                  └─────────┬──────────────┘
+                            │
+                            ▼
+                  ┌────────────────────────┐         ┌──────────────────┐
+                  │  PROMPT ASSEMBLY       │ ◄──────│  SYSTEM PROMPT   │
+                  │                        │         │  (YAML, v0.2.0)  │
+                  │  system + context +    │         │  - Hard rules    │
+                  │  user request          │         │  - Wrong/right   │
+                  └─────────┬──────────────┘         │    examples      │
+                            │                        └──────────────────┘
+                            ▼
+                  ┌────────────────────────┐
+                  │  OLLAMA HARNESS        │
+                  │  (qwen3-coder:30b)     │
+                  └─────────┬──────────────┘
+                            ▼
+                  ┌────────────────────────┐
+                  │  STATIC VALIDATOR      │ ──── retry with errors
+                  │  (regex rules)         │      fed back into the
+                  │                        │      next prompt (max 3)
+                  └─────────┬──────────────┘
+                            ▼
+                  ┌────────────────────────┐
+                  │  WRITE FILE            │
+                  │  to --out path         │
+                  └─────────┬──────────────┘
+                            ▼
+                  ┌────────────────────────┐
+                  │  COMPILE VALIDATOR     │
+                  │  (tsc --noEmit)        │
+                  └─────────┬──────────────┘
+                            ▼
+                  ┌────────────────────────┐
+                  │  DRY-COMPILE VALIDATOR │
+                  │  (playwright           │
+                  │   test --list)         │
+                  └─────────┬──────────────┘
+                            ▼
+                  ┌────────────────────────┐
+                  │  GENERATED TEST        │
+                  │  *.spec.ts             │
+                  │  ready to run          │
+                  └────────────────────────┘
+```
+
+## The five-layer context strategy
+
+The model gets five sources of context before it writes a test. Each closes
+a specific class of "fabricated value" failure:
+
+| Layer | What | Closes |
+|---|---|---|
+| 1. System prompt | Framework conventions, hard rules, wrong/right examples | "How should the test be shaped?" |
+| 2. Catalogue surface | POM classes, fixtures, utility signatures | "What methods can I call?" |
+| 3. Catalogue values | Enum-like types, named-constant keys (`VARIANTS`, `PROMO_CODES`) | "What values are valid?" — fixes the `'jackets'` / `'Black'` fabrication |
+| 4. Live DOM | Multi-signal element inventory + aria snapshot | "What testids/roles/labels actually exist?" |
+| 5. Few-shot examples | Top 3 similar existing tests by keyword overlap | "What style does this team use?" — picks up `test.step`, factories, tag conventions |
+
+The system prompt is the rulebook. The catalogue is the API. The DOM is
+ground truth. Existing tests are the style guide. The model composes; it
+doesn't invent.
+
+## Project structure
+
+```
+qa-ai-prototype/
+├── README.md                          ← you are here
+├── FLOW.md                            ← stage-by-stage walkthrough
+├── package.json
+├── tsconfig.json
+├── vitest.config.ts
+│
+├── src/
+│   ├── cli.ts                         ← entrypoint; orchestrates all stages
+│   ├── types.ts                       ← shared types
+│   ├── crawler.ts                     ← live-app crawler (Playwright)
+│   │
+│   ├── catalogue/
+│   │   └── extractor.ts               ← ts-morph passes
+│   │
+│   ├── context/
+│   │   └── builder.ts                 ← filter, rank, render to prompt
+│   │
+│   ├── prompts/
+│   │   ├── test-generation.yaml       ← versioned system prompt
+│   │   └── loader.ts                  ← assembles system + context + request
+│   │
+│   ├── harness/
+│   │   └── loop.ts                    ← Ollama call + static-validation retry loop
+│   │
+│   └── validators/
+│       ├── static.ts                  ← Layer 1: regex rules
+│       ├── compile.ts                 ← Layer 4: tsc --noEmit
+│       └── dry-compile.ts             ← Layer 5: playwright test --list
+│
+├── tests/
+│   ├── extractor.test.ts
+│   └── validator.test.ts
+│
+└── examples/
+    ├── checkout/                      ← minimal smoke-test sample
+    └── looksy/                        ← full sample framework targeting Looksy ★
+        ├── pages/                     ← 7 lazy proxy POMs
+        ├── fixtures/                  ← base + authenticated
+        ├── utils/                     ← selector helpers, composite flows
+        ├── test-data/                 ← factories + VARIANTS + PROMO_CODES
+        ├── types/                     ← shared domain types (literal unions)
+        ├── config/playwright.config.ts
+        └── tests/                     ← reference tests showing conventions
+```
+
+## Per-file roles
+
+Quick reference for what each source file does and when you'd touch it.
+
+| File | Role | When you'd edit |
+|---|---|---|
+| `src/cli.ts` | Argument parsing and stage orchestration: catalogue → crawl → generate → write → validate. Prints progress. | Adding a new flag; reordering the pipeline. |
+| `src/types.ts` | Single source of truth for shared interfaces: `Catalogue`, `GenRequest`, `CrawlResult`, `InteractableElement`, `ValidationResult`. | Adding a new context layer or a new validator output. |
+| `src/crawler.ts` | Live-app discovery and DOM extraction. Sitemap → BFS route discovery, multi-signal element walker (testid + role + label + placeholder + alt + title + text), traverses iframes + open shadow DOM. Returns `CrawlResult`. | Tweaking what counts as "interactable"; adding new selector signals. |
+| `src/catalogue/extractor.ts` | ts-morph-driven extraction of framework structure. Six passes: POMs, fixtures, utilities, enum-like type aliases, named-constant catalogues, existing tests. Returns `Catalogue`. | Different framework conventions (POM file pattern, fixture shape). |
+| `src/context/builder.ts` | Picks the slice of catalogue + crawl relevant to the request and renders it as Markdown for the prompt. Includes domain inference and similar-test ranking by keyword overlap. | Re-shaping prompt sections; tuning relevance heuristics. |
+| `src/prompts/test-generation.yaml` | The system prompt. Versioned, source-controlled. Contains hard rules (selector priority, no hard waits, fixture import, factories, `test.step`), wrong/right examples, output format. | Change framework conventions or strengthen a rule. |
+| `src/prompts/loader.ts` | Reads the YAML, assembles the final two-message prompt (system + user) by combining the system prompt, the rendered context, and the user's `--request` text. | Rarely. |
+| `src/harness/loop.ts` | The retry harness. Calls Ollama, runs the static validator, feeds errors back into the prompt on failure, max 3 attempts. Surfaces `ModelNotFoundError` with a friendly install hint. | Adding a new layer to the inline retry loop. |
+| `src/validators/static.ts` | Regex-based rule checks: `no-raw-locator`, `no-hard-waits`, `fixture-import`, `missing-tags`, `missing-describe`. Returns `ValidationResult` with errors that get fed back into retries. | Adding a new convention rule. |
+| `src/validators/compile.ts` | Layer 4: spawns `tsc --noEmit` against the framework's tsconfig with the generated file in scope. Catches type errors, missing imports. | Rarely. |
+| `src/validators/dry-compile.ts` | Layer 5: spawns `playwright test <file> --list` to load and parse the test inside Playwright's runner without executing it. Catches fixture name typos, top-level errors. | Rarely. |
+| `tests/extractor.test.ts` | Smoke test for `extractCatalogue` against the bundled examples. | When you change the extractor's output shape. |
+| `tests/validator.test.ts` | Unit tests for every static validator rule. | Whenever you change a rule. |
 
 ## Prerequisites
 
 You need three things on your machine. Skip any you've already got.
 
 **Node.js 20 or newer.** Check with `node --version`. Install via
-`nvm install 20` or from nodejs.org if missing.
+`nvm install 20` or from nodejs.org.
 
 **Ollama** to run the model locally — no API keys, no paid services.
 
@@ -47,29 +225,30 @@ curl -fsSL https://ollama.com/install.sh | sh
 # Windows: download the installer from https://ollama.com/download
 ```
 
-After install, verify Ollama is running:
+Verify it's running:
 
 ```bash
 curl http://localhost:11434/api/tags
 ```
 
-That should return JSON. If you see "connection refused," start it
-manually with `ollama serve` in a spare terminal.
+That should return JSON. If "connection refused," start it manually with
+`ollama serve` in a spare terminal.
 
-**The Qwen Coder model.** The prototype defaults to the 7B variant —
-fits on a laptop with 16 GB RAM, generates code well enough to validate
-the loop.
+**The Qwen3-Coder model.** The prototype defaults to `qwen3-coder:30b` —
+Alibaba's leading open-source coder, with 256K context and a Mixture-of-Experts
+architecture (30B total parameters, 3.3B active per token).
+
+> **RAM check.** The model file is **19 GB** on disk. To run smoothly you'll
+> want **32 GB of system RAM minimum**, ideally **48 GB+** if you plan to use
+> the full 256K context window. On 16 GB it loads but every generation is
+> slow (60-90s) and the rest of your machine is unusable. If you don't have
+> 32 GB+, fall back to `qwen2.5-coder:7b` and pass `--model qwen2.5-coder:7b`
+> on every gen call.
 
 ```bash
-ollama pull qwen2.5-coder:7b
-```
-
-That's about 4.5 GB, takes a few minutes on a decent connection. Verify:
-
-```bash
-ollama list                                            # should list qwen2.5-coder:7b
-ollama run qwen2.5-coder:7b "Print one Playwright assertion."
-                                                       # /bye to exit
+ollama pull qwen3-coder:30b
+ollama list                                       # should show qwen3-coder:30b
+ollama run qwen3-coder:30b "Print one Playwright assertion."   # /bye to exit
 ```
 
 ## Install
@@ -80,85 +259,77 @@ cd qa-ai-prototype
 npm install
 ```
 
-Quick smoke test of the prototype's own internals — don't proceed if
-these fail:
+Quick smoke test:
 
 ```bash
-npm test    # 6 passing: 5 validator + 1 extractor smoke
+npm test    # 8 passing
 ```
 
-## Quick start: run against the bundled Looksy framework
+### Optional: install the example framework's own deps
 
-The prototype ships with **two** sample frameworks under `examples/`:
+The bundled `examples/looksy/` is a self-contained Playwright framework.
+Install its deps so:
 
-| Folder                  | What it is                                 | When to use                                          |
-|-------------------------|--------------------------------------------|------------------------------------------------------|
-| `examples/looksy/`      | Full Playwright framework targeting Looksy | **Default for end-to-end runs.** Recommended.        |
-| `examples/checkout/`    | Minimal 2-POM smoke set                    | Just for verifying the catalogue extractor works.    |
-
-Use the **looksy** example for everything else. It has 7 POMs, 2
-fixtures, factory data, types, and a Playwright config — a realistic
-framework shape that exercises the full prototype.
-
-### Your first run
+1. Your editor gets IntelliSense for files inside the example
+2. The compile + dry-compile validators have a tsconfig + Playwright runner
+   to point at after generation
 
 ```bash
-npm run gen -- \
-  --repo ./examples/looksy \
-  --request "test that a guest user can complete checkout with card payment" \
-  --print --verbose
+cd examples/looksy
+npm install
+npx playwright install chromium      # one-off, ~150 MB
+cd ../..
 ```
 
-What you should see (in order):
+If you skip this, the AI generator still works — it just can't run the
+post-generation validators (compile + dry-compile). The static validator
+runs regardless.
 
-1. **Extraction phase** — "Found 7 POMs, 2 fixtures, 5 utilities" with
-   their names listed.
-2. **Context build** — the markdown context that will be sent to the
-   model. Should mention `CheckoutPage`, `CartDrawerPage`, the
-   `looksy.fixture` import path, and the test data factories.
-3. **Generation** — model streams tokens for 20-60 seconds (first run
-   is slowest because the model loads into memory).
-4. **Validation** — the static validators check the output. You should
-   see "0 hard violations, 0 soft violations" if the model gets it right.
-5. **Output** — generated Playwright test printed to stdout.
+## Quick start
 
-If you see a test that imports from `../fixtures/looksy.fixture`, uses
-POM methods like `await checkoutPage.fillContactAndContinue(...)`, and
-ends its name with `@web @checkout @priority-high` — the loop works.
+Two terminals.
 
-### Run the generated test against Looksy
-
-The generated test is real, runnable Playwright code. To execute it:
+**Terminal 1 — start Looksy** (the test target):
 
 ```bash
-# Terminal 1 — start the Looksy app
 cd /path/to/looksy-shop
+npm install
 npm run dev    # http://localhost:5173
+```
 
-# Terminal 2 — write the generated test out and run it
+**Terminal 2 — generate a test:**
+
+```bash
 cd /path/to/qa-ai-prototype
 npm run gen -- \
   --repo ./examples/looksy \
-  --request "..." \
-  --out ./examples/looksy/tests/generated.spec.ts
-
-npx playwright install chromium    # one-off
-npx playwright test \
-  --config=examples/looksy/config/playwright.config.ts \
-  generated.spec.ts
+  --app-url http://localhost:5173 \
+  --request "guest user completes checkout with card payment" \
+  --out ./examples/looksy/tests/generated.spec.ts \
+  --verbose
 ```
 
-A pass means the model produced a test that uses your conventions AND
-runs successfully against the live app. That's the metric to bring to
-Nipam.
+What you should see, in order:
+
+1. **Catalogue extraction** — "found 7 POMs, 3 fixtures, 6 utils, 5 enums,
+   2 named consts, 7 existing tests"
+2. **Crawl** — "discovered N routes via sitemap/bfs, found M unique testids"
+3. **Generation** — model streams; first run is slowest (model load)
+4. **Static validation** — passes or triggers retry with errors
+5. **File written** to `--out`
+6. **Compile validator** — runs `tsc --noEmit`
+7. **Dry-compile validator** — runs `playwright test --list`
+
+Three flags worth knowing:
+
+- `--routes "/, /shop/knitwear, /checkout"` — explicit route list (skips
+  auto-discovery)
+- `--max-routes 12` — cap discovered routes (default 20)
+- `--max-depth 2` — BFS depth limit (default 2)
+- `--no-crawl` — skip the crawl entirely
+- `--no-validate` — skip post-generation compile + dry-compile
 
 ## Writing a request
-
-The `--request` flag is the lever you're pulling. The model gets:
-
-1. The system prompt with framework rules (versioned in `src/prompts/test-generation.yaml`)
-2. The relevant slice of the catalogue (POM signatures, fixtures, utils)
-3. **Your request text**
 
 Three levels of detail, in increasing specificity:
 
@@ -168,9 +339,7 @@ Three levels of detail, in increasing specificity:
 --request "test the on-sale filter on the catalog page"
 ```
 
-Good for exploratory generation. The model picks reasonable assertions.
-Sometimes surprising, sometimes wrong. Useful early on to see what the
-model knows about your framework.
+Useful for exploratory generation. Fewer constraints, more variability.
 
 ### Medium — specify the journey, not every assertion
 
@@ -178,93 +347,79 @@ model knows about your framework.
 --request "a guest user filters the catalog to on-sale only, picks the Selvedge Straight Jean in storm, adds size L to cart, and proceeds to checkout"
 ```
 
-This is the sweet spot. Concrete enough to constrain the test, loose
-enough that the model picks POM methods and assertions from the catalogue.
+The sweet spot for 80% of generations.
 
-### High-detail — Gherkin-style explicit steps
+### High-detail — explicit numbered steps
 
 ```bash
 --request "
-Given I am on the home page
-When I navigate to /shop and apply the on-sale filter
-Then the result count should be less than 16
-When I click the Selvedge Straight Jean
-And I select size L and color Storm
-And I click Add to Bag
-Then the cart drawer should open
-And the cart badge should show 1
+Test: Mobile club product checkout
+Steps:
+1. Register a new user account
+2. Search for a Club product by name
+3. Add an available size to the bag
+4. Proceed to checkout
+5. Enter London delivery address
+6. Pay with credit card
+Expected: order confirmation page shows 'Visa' as billing provider
 "
 ```
 
-Good for regressions where you need exact steps. Less freedom for the
-model, more determinism.
+This shape mirrors an Xray test definition. Most determinism, least model
+freedom.
 
-**The medium form is what you should write 80% of the time.** Start
-medium, drop to high-detail only when the model produces something
-wrong and you want to constrain it more.
-
-## Reading and improving the output
+## Reading the validator results
 
 After a run, three things to check in the generated test:
 
-**1. Does it import from the framework fixture, not `@playwright/test`?**
+**Convention adherence (static validator).** No raw `page.locator(...)`,
+no `waitForTimeout`, no `import { test } from '@playwright/test'`, all
+test names tagged. Static catches these and triggers retries — by the time
+the file is written these should all be resolved.
 
-```ts
-// ✓ good
-import { test, expect } from "../fixtures/looksy.fixture";
+**Type correctness (compile validator).** `tsc --noEmit` against the
+framework's tsconfig. Catches imports that don't resolve, methods called
+with wrong argument types. Currently runs as a warning; set
+`--max-attempts 5` if you want more retries.
 
-// ✗ bad — bypasses the framework
-import { test, expect } from "@playwright/test";
+**Test registration (dry-compile validator).** `playwright test --list`
+loads the file inside Playwright's runner. Catches fixture name typos,
+missing exports, top-level errors. Strongest signal that the test will
+at least *try* to run.
+
+**Actual execution.** Not run by the prototype. Once a test passes
+dry-compile:
+
+```bash
+cd examples/looksy
+npm test -- generated.spec.ts
 ```
 
-If the bad version slips through, your validator's `fixture-import`
-rule needs strengthening. Look at `src/validators/static.ts`.
-
-**2. Are selectors testid-first?**
-
-```ts
-// ✓ good — uses POM methods (which use testid internally)
-await catalogPage.filterByCategory("knitwear");
-
-// ✗ bad — raw CSS, should be caught by `no-raw-locator`
-await page.locator(".filter-pill.knitwear").click();
-```
-
-**3. Are the tags right?**
-
-```ts
-test("name @web @<domain> @priority-<level>", async ({ ... }) => { ... });
-```
-
-Missing tags surface as warnings (soft gate) but don't fail generation.
-If they're consistently missing, strengthen the prompt's tag rules in
-`src/prompts/test-generation.yaml`.
+That tells you whether the test passes against the live app — slow
+(30+ seconds per run) and adds setup; best as a manual final step.
 
 ## Swap to your real framework when ready
 
-When you have access to your real `core-automation-playwright-ts`,
-the swap is one flag:
+When `core-automation-playwright-ts` access is available:
 
 ```bash
-# Was:
-npm run gen -- --repo ./examples/looksy --request "..."
+# Was (placeholder):
+npm run gen -- --repo ./examples/looksy --app-url http://localhost:5173 ...
 
 # Becomes:
-npm run gen -- --repo /path/to/core-automation-playwright-ts --request "..."
+npm run gen -- --repo /path/to/core-automation-playwright-ts \
+               --app-url https://www-uk-staging.newlookstaging.com ...
 ```
 
-The prototype doesn't care which framework it points at, **as long as
-the framework follows the conventions in `examples/looksy/FRAMEWORK.md`**.
 If your real framework has different conventions:
 
-- **Different fixture import path?** Update the prompt's "Fixture imports"
-  section in `src/prompts/test-generation.yaml`.
-- **Different tag scheme?** Update the prompt's tag rules.
-- **Different POM file location?** Pass `--pom-glob` etc. to the CLI.
-- **Stricter selector rules?** Update validators in `src/validators/static.ts`.
+- **Different fixture import path?** Update `src/prompts/test-generation.yaml`
+- **Different tag scheme?** Same file
+- **Different POM file location?** The catalogue extractor's globs are
+  configurable in `src/catalogue/extractor.ts` (`pomGlob`, `fixtureGlob`, etc.)
+- **Stricter selector rules?** Update `src/validators/static.ts`
 
-For the first run on the real repo, save the catalogue so you can
-inspect what the extractor found:
+For the first run on the real repo, save the catalogue:
 
 ```bash
 npm run gen -- \
@@ -274,11 +429,11 @@ npm run gen -- \
   --verbose
 ```
 
-Then `cat real-catalogue.json | jq '.poms | length'` to see if the
-extraction picked up everything. If it missed POMs, the file location
-or shape probably differs from the bundled example — adjust the globs.
+Then `cat real-catalogue.json | jq '.poms | length'` to see how many POMs
+were picked up. If extraction misses things, the file location or shape
+likely differs from the bundled example.
 
-After the first extraction, reuse the catalogue across runs:
+After the first extraction, reuse it across runs:
 
 ```bash
 npm run gen -- \
@@ -287,60 +442,21 @@ npm run gen -- \
   --request "..."
 ```
 
-This skips re-extraction (faster) and gives you a stable target while
-you iterate on prompts.
-
-## Project structure
-
-```
-qa-ai-prototype/
-├── README.md                 ← you are here
-├── package.json              ← scripts: gen, test, build
-├── tsconfig.json
-│
-├── src/                      ← the prototype itself
-│   ├── cli.ts                ← CLI entrypoint, parses args, runs the harness
-│   ├── types.ts              ← shared types (Catalogue, GenRequest, GenResult)
-│   │
-│   ├── catalogue/extractor.ts    ← ts-morph walks --repo, extracts POMs/fixtures/utils
-│   ├── context/builder.ts        ← picks the right slice of catalogue for the request
-│   │
-│   ├── prompts/test-generation.yaml   ← system prompt — framework conventions
-│   ├── prompts/loader.ts         ← assembles the full prompt from system + context + request
-│   │
-│   ├── harness/loop.ts           ← Ollama call + retry-on-validation-failure loop
-│   └── validators/static.ts      ← hard rules (no raw locator, no hard waits, etc)
-│
-├── tests/                    ← unit tests for the prototype's own internals
-│   ├── extractor.test.ts     ← smoke test for catalogue extraction
-│   └── validator.test.ts     ← validator rules
-│
-└── examples/                 ← sample frameworks the prototype can target
-    ├── checkout/             ← minimal 2-POM example (smoke testing only)
-    └── looksy/               ← full framework targeting the Looksy app ★
-        ├── FRAMEWORK.md      ← conventions doc — read this for the rules
-        ├── README.md         ← framework-level docs
-        ├── pages/            ← 7 POMs, one per Looksy route
-        ├── fixtures/         ← base + authenticated test extensions
-        ├── utils/            ← selector helpers, composite flows
-        ├── test-data/        ← user/address/card/variant factories
-        ├── types/            ← shared domain types
-        ├── config/           ← Playwright config pointing at localhost:5173
-        └── tests/            ← reference test showing the conventions
-```
-
 ## Architecture mapping
 
-The architecture maps directly to the five-layer rule enforcement stack
-designed earlier:
+The architecture maps directly to the rule enforcement stack designed
+earlier:
 
-| Layer                    | Where in code                         | Status            |
-|--------------------------|---------------------------------------|-------------------|
-| 1. System prompt rules   | `src/prompts/test-generation.yaml`    | ✓ here            |
-| 2. Curated context       | `src/catalogue/` + `src/context/`     | ✓ here            |
-| 3. Structured output     | (tool-use schema)                     | Phase 1b          |
-| 4. Static validation     | `src/validators/static.ts`            | ✓ here (regex)    |
-| 5. Runtime validation    | (Playwright dry-compile)              | Phase 1c          |
+| Layer | Code location | Status |
+|---|---|---|
+| 1. System prompt rules | `src/prompts/test-generation.yaml` | ✓ here, expanded with `test.step` and factory rules |
+| 2. Curated context | `src/catalogue/` + `src/context/` | ✓ here, with enum/named-const/few-shot extraction |
+| 3. Live DOM grounding | `src/crawler.ts` | ✓ here, multi-signal + iframe + shadow |
+| 4. Static validation | `src/validators/static.ts` | ✓ here, raw-locator rule tightened |
+| 5. Compile validation | `src/validators/compile.ts` | ✓ here, post-generation gate |
+| 6. Dry-compile validation | `src/validators/dry-compile.ts` | ✓ here, post-generation gate |
+| 7. Runtime execution | (manual `npx playwright test`) | Phase 1c: opt-in flag |
+| 8. Multi-agent (Healer/Writer/...) | — | Phase 2 |
 
 ## Tests
 
@@ -348,34 +464,18 @@ designed earlier:
 npm test
 ```
 
-Unit tests cover the validator rules and a smoke test for the catalogue
-extractor against the bundled examples. Run before changing the prompt
-or the rules to make sure you don't regress.
-
-## What's deliberately not here yet
-
-- No Bifrost gateway (this is single-process)
-- No Kestra orchestration (this is a CLI)
-- No pgvector or embeddings (catalogue-first retrieval is enough for Phase 0)
-- No Continue.dev integration (Phase 1)
-- No PR review or self-healing flows (Phase 2/3)
-- No vLLM (Ollama is fine for laptop validation; vLLM comes when scaling)
-
-These all go in subsequent phases. The point of Phase 0 is to prove the
-harness loop produces framework-aligned tests on a small model. If it
-works here, the same code (with Bifrost swapped in for the Ollama client)
-runs identically against vLLM in production.
+Eight tests total: 7 validator rules + 1 catalogue extractor smoke. Run
+before changing the prompt or rules to make sure you don't regress.
 
 ## Next concrete steps
 
-1. Run the generator against `examples/looksy` end-to-end against the
-   live Looksy app. Note first-shot vs post-retry success rate.
-2. Generate 10-20 tests across the @home, @catalog, @product, @cart,
-   @checkout, @account, @promo domains. Score them.
-3. When `core-automation-playwright-ts` access is available, swap
-   `--repo`. Tune globs as needed.
-4. Compare 7B output against Qwen2.5-Coder 32B (needs either a bigger
-   laptop, a single L40S/A10G, or a cloud GPU). If 7B is good enough,
-   the proposal to Nipam writes itself: "framework-aligned tests on a
-   small model with context engineering — give us one GPU and we can
-   serve the whole team."
+1. **Run the generator end-to-end against Looksy.** Start the dev server,
+   run `gen` with `--out` pointing at `examples/looksy/tests/`. Note:
+   catalogue counts, crawl testid count, first-shot vs post-retry results.
+2. **Generate 10-20 tests across domains.** Score them on (a) static passed
+   first-shot, (b) compile passed, (c) dry-compile passed. That's your
+   baseline scorecard for Nipam.
+3. **When `core-automation-playwright-ts` access is available, swap
+   `--repo`.** Tune globs and prompt rules to match real conventions.
+4. **Bring the scorecard to Nipam.** Numbers from step 2 are the data point.
+   Architecture diagram (top of this README) is the path forward.
