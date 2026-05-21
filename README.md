@@ -378,6 +378,12 @@ npm run gen -- \
   --verbose \
 ```
 
+### Generate Catelogue
+
+```bash
+npm run gen -- --repo ./examples/looksy --save-catalogue ./catalogue.json --request dummy --print
+```
+
 This shape mirrors an Xray test definition. Most determinism, least model
 freedom.
 
