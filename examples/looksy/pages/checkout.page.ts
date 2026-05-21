@@ -149,6 +149,7 @@ export class CheckoutPage {
     await this.page.goto("/checkout");
   }
 
+
   // ─── Actions: step 1 — contact ───────────────────────────────────────
 
   /**
@@ -173,6 +174,8 @@ export class CheckoutPage {
     await this.line1Input.fill(address.line1);
     if (address.line2) {
       await this.line2Input.fill(address.line2);
+    } else {
+      await this.line2Input.clear(); // Ensure optional field is clean
     }
     await this.cityInput.fill(address.city);
     await this.postcodeInput.fill(address.postcode);
@@ -216,26 +219,9 @@ export class CheckoutPage {
 
   // ─── Assertions ──────────────────────────────────────────────────────
 
-  async expectOnContactStep(): Promise<void> {
-    await expect(this.contactStep).toBeVisible();
-  }
+  
 
-  async expectOnShippingStep(): Promise<void> {
-    await expect(this.shippingStep).toBeVisible();
-  }
+ 
 
-  async expectOnPaymentStep(): Promise<void> {
-    await expect(this.paymentStep).toBeVisible();
-  }
-
-  async expectPromoApplied(): Promise<void> {
-    await expect(this.promoApplied).toBeVisible();
-  }
-
-  async expectPromoError(messageContains?: string): Promise<void> {
-    await expect(this.promoError).toBeVisible();
-    if (messageContains) {
-      await expect(this.promoError).toContainText(messageContains);
-    }
-  }
+  
 }

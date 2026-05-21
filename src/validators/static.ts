@@ -33,6 +33,39 @@ export function validateGeneratedTest(content: string): ValidationResult {
   validateDescribe(sourceFile, errors);
   validateAssertionsAtTestLevel(sourceFile, errors);
 
+  // ──────────────────────────────────────────────────────────────────────
+  // Additional rule: missing PROMO_CODES import
+  // ──────────────────────────────────────────────────────────────────────
+  if (content.includes('PROMO_CODES.') && !content.includes('import { PROMO_CODES }') && !content.includes('import { PROMO_CODES,')) {
+    errors.push({
+      rule: "missing-promo-codes-import",
+      message: "You used PROMO_CODES but did not import it. Add: import { PROMO_CODES } from '../../test-data/factories';",
+      severity: "error",
+      line: findLineNumber(content, 'PROMO_CODES.'),
+    });
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Additional rule: prevent calling getter‑like methods that should be
+  // property accesses (e.g., `.getTotalsSubtotal()` vs `.totalsSubtotal`)
+  // ──────────────────────────────────────────────────────────────────────
+  const getterMethodCallRegex = /(\w+)\.(get[A-Z]\w+)\s*\(/g;
+  let getterMatch;
+  while ((getterMatch = getterMethodCallRegex.exec(content)) !== null) {
+    const instanceName = getterMatch[1];
+    const methodName = getterMatch[2];
+    const knownPoms = ['productPage', 'cartDrawer', 'checkoutPage', 'orderConfirmationPage', 'homePage', 'catalogPage'];
+    if (knownPoms.includes(instanceName)) {
+      const propertyName = methodName[3].toLowerCase() + methodName.slice(4);
+      errors.push({
+        rule: "locator-as-method",
+        message: `Called "${instanceName}.${methodName}()" but "${instanceName}.${propertyName}" is likely a property (locator). Use "${instanceName}.${propertyName}" directly (e.g., await ${instanceName}.${propertyName}.textContent()).`,
+        severity: "error",
+        line: findLineNumber(content, `${instanceName}.${methodName}(`),
+      });
+    }
+  }
+
   const hardErrors = errors.filter((e) => e.severity === "error");
   return {
     ok: hardErrors.length === 0,
@@ -167,46 +200,40 @@ function validateDescribe(sourceFile: SourceFile, errors: ValidationError[]) {
 
 /**
  * Rule 6: Assertions live at the test level, never inside POM methods.
- *
- * Flag method calls like `pomName.expectFoo(...)`, `pomName.verifyBar(...)`,
- * `pomName.assertBaz(...)` — these are usually misplaced assertions that
- * belong in the test as `await expect(pomName.fooLocator).toBe...`.
- *
- * Severity is `warn` not `error` because legitimate semantic helpers like
- * `expectLoaded()` or `waitForReady()` exist; we surface the smell without
- * blocking the build. The model still sees this in retry feedback when
- * other errors fire.
- *
- * Implementation note: the regex-based approach used to false-positive on
- * `expect(...)` itself. Using the AST and excluding the literal `expect`
- * identifier handles that cleanly.
  */
 function validateAssertionsAtTestLevel(sourceFile: SourceFile, errors: ValidationError[]) {
   sourceFile.forEachDescendant(node => {
     if (node.getKind() !== SyntaxKind.CallExpression) return;
     const call = node.asKindOrThrow(SyntaxKind.CallExpression);
     const expr = call.getExpression();
-    // We're looking for property-access style: `something.expectXxx(`.
     if (expr.getKind() !== SyntaxKind.PropertyAccessExpression) return;
 
     const propAccess = expr.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
     const target = propAccess.getExpression().getText();
     const methodName = propAccess.getName();
 
-    // Skip the literal `expect(...)` chain — `expect(foo).toBe...` is fine.
     if (target === "expect") return;
 
-    // Match expectFoo / verifyFoo / assertFoo with an uppercase first
-    // letter after the verb (so it's clearly a compound name).
-    if (!/^(expect|verify|assert)[A-Z]/.test(methodName)) return;
-
-    errors.push({
-      rule: "assertions-at-test-level",
-      message: `"${target}.${methodName}(...)" looks like an assertion buried in a POM method. Move it to the test using \`await expect(${target}.someLocator).toBe...()\` instead.`,
-      line: node.getStartLineNumber(),
-      severity: "warn",
-    });
+    if (/^(expect|verify|assert)[A-Z]/.test(methodName)) {
+      errors.push({
+        rule: "assertions-at-test-level",
+        message: `"${target}.${methodName}(...)" looks like an assertion buried in a POM method. Move it to the test using \`await expect(${target}.someLocator).toBe...()\` instead.`,
+        line: node.getStartLineNumber(),
+        severity: "warn",
+      });
+    }
   });
+}
+
+/**
+ * Helper to find the approximate line number of a substring in the content.
+ */
+function findLineNumber(content: string, substr: string): number | undefined {
+  const lines = content.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes(substr)) return i + 1;
+  }
+  return undefined;
 }
 
 export function formatErrorsForRetry(result: ValidationResult): string {

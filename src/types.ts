@@ -129,15 +129,10 @@ export interface GenRequest {
   description: string;
   domain?: string;
   outputDir?: string;
-  /** Optional crawl result to inject into the prompt. */
   crawl?: CrawlResult;
-  /**
-   * If true, the model is allowed to propose adding NEW Locator getters
-   * or simple action methods to existing POMs when the catalogue lacks
-   * what the test needs. Off by default — patches modify the framework
-   * and need explicit opt-in.
-   */
   allowPomPatches?: boolean;
+  /** Where the generated test will be written, relative to framework root */
+  targetFileRelative?: string;
 }
 
 /**
@@ -187,4 +182,18 @@ export interface ValidationResult {
   error?: string;
   /** Time the check took, for cost analysis. */
   durationMs: number;
+}
+// Planner types
+export interface MissingMember {
+  className: string;      // e.g., "CheckoutPage"
+  memberType: "locator" | "method";
+  name: string;           // e.g., "fillAddress"
+  signature?: string;     // e.g., "async fillAddress(address: DeliveryAddress): Promise<void>"
+  body?: string;          // implementation code (for methods)
+  rationale: string;
+}
+
+export interface PatchPlan {
+  missingMembers: MissingMember[];
+  autoApply: boolean;
 }

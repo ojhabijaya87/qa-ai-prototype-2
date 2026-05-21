@@ -16,6 +16,9 @@ import { Page, Locator, expect } from "@playwright/test";
 import type { ProductSize } from "../types/index.js";
 
 export class ProductPage {
+  async addToBag(): Promise<void> {
+  await this.addToCart();
+}
   constructor(private readonly page: Page) {}
 
   // ─── Locators ────────────────────────────────────────────────────────
@@ -93,10 +96,11 @@ export class ProductPage {
    * mismatch).
    */
   async selectSize(size: ProductSize): Promise<void> {
-    const sizeButton = this.page.getByTestId(`product-size-${size}`);
-    await expect(sizeButton).toBeEnabled();
-    await sizeButton.click();
-  }
+  const sizeButton = this.page.getByTestId(`product-size-${size}`);
+  await sizeButton.waitFor({ state: 'visible' }); // optional
+  await expect(sizeButton).toBeEnabled();
+  await sizeButton.click();
+}
 
   /**
    * Set quantity by clicking +/- to reach the target value. Use this

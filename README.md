@@ -365,6 +365,19 @@ Expected: order confirmation page shows 'Visa' as billing provider
 "
 ```
 
+### Generate Tests from notepads
+
+```bash
+npm run gen -- \
+  --repo ./examples/looksy \
+  --catalogue ./catalogue.json \
+  --model qwen3-coder:30b \
+  --no-crawl \
+  --request ./two-tests.txt \
+  --out ./examples/looksy/tests/generated/ \
+  --verbose \
+```
+
 This shape mirrors an Xray test definition. Most determinism, least model
 freedom.
 

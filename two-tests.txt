@@ -1,0 +1,39 @@
+Test ID: NL-001
+Test Name: Guest checkout with credit card
+Preconditions:
+- User is not logged in
+- Cookie banner accepted
+Steps:
+1. Navigate to homepage
+2. Select 'Ashford Overcoat' from New Arrivals
+3. Select color 'Ink'
+4. Select size 'S'
+5. Add to bag
+6. Click 'Proceed to Checkout' in cart drawer
+7. Fill in guest email 'guest@example.com'
+8. Enter delivery address: 10 Downing St, London, SW1A 2AA
+9. Select 'Standard delivery'
+10. Select 'Card' payment method
+11. Enter card details: 4242 4242 4242 4242, 12/30, 123
+12. Click 'Place Order'
+13. Verify 'Thank you for your order' page is displayed
+Expected Result:
+Order is successfully placed as a guest and confirmation page is shown.
+
+---
+
+Test ID: NL-002
+Test Name: Apply WELCOME10 promo code
+Preconditions:
+- User has items in cart
+Steps:
+1. Navigate to 'Fennel Fisherman Knit' product page
+2. Select color 'Bone'
+3. Select size 'S'
+4. Add to bag
+5. In cart drawer, find the promo code input
+6. Enter code 'WELCOME10' and apply
+7. Verify '10% off your first order' is displayed
+8. Verify the subtotal is reduced by 10%
+Expected Result:
+Promo code is applied successfully and discount is reflected in the total.

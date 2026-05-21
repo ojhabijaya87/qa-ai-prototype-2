@@ -71,4 +71,9 @@ export class OrderConfirmationPage {
   async expectHasDiscount(): Promise<void> {
     await expect(this.discount).toBeVisible();
   }
+
+
+get thankYouMessage(): Locator {
+  return this.page.getByTestId("order-confirmation-thankyou");
+}
 }

@@ -32,6 +32,71 @@ export interface BuiltContext {
   similarTests: SimilarTest[];
   crawl?: CrawlResult;
 }
+// Add this new function to builder.ts, or replace the existing renderContextForPrompt
+
+export function renderCompactContextForPrompt(ctx: BuiltContext): string {
+  const sections: string[] = [];
+
+  sections.push("## POM classes and their public members (names only, no signatures)\n");
+  for (const pom of ctx.poms) {
+    const locators = pom.publicLocators.map(l => l.name).join(", ");
+    const methods = pom.publicMethods.map(m => m.name).join(", ");
+    sections.push(`- **${pom.className}** (file: ${pom.filePath})`);
+    if (locators) sections.push(`  - locators: ${locators}`);
+    if (methods) sections.push(`  - methods: ${methods}`);
+  }
+  sections.push("");
+
+  sections.push("## Fixtures (import from these)\n");
+  for (const fx of ctx.fixtures) {
+    sections.push(`- ${fx.name} (provides: ${fx.injects.join(", ")}) from ${fx.filePath}`);
+  }
+  sections.push("");
+
+  sections.push("## Utilities (import from these)\n");
+  for (const u of ctx.utils) {
+    sections.push(`- ${u.name} from ${u.filePath} – ${truncateSignature(u.signature)}`);
+  }
+  sections.push("");
+
+  if (ctx.enumLikeTypes.length > 0) {
+    sections.push("## Valid values for typed arguments\n");
+    for (const e of ctx.enumLikeTypes) {
+      sections.push(`- ${e.name}: ${e.members.map(m => `"${m}"`).join(" | ")}`);
+    }
+    sections.push("");
+  }
+
+  if (ctx.namedConstants.length > 0) {
+    sections.push("## Test data catalogues\n");
+    for (const c of ctx.namedConstants) {
+      sections.push(`- ${c.name} from ${c.filePath} – keys: ${c.keys.join(", ")}`);
+    }
+    sections.push("");
+  }
+
+  if (ctx.crawl && ctx.crawl.allTestIds.length > 0) {
+    sections.push("## Available data-testid values from live crawl\n");
+    sections.push(ctx.crawl.allTestIds.slice(0, 50).join(", ") + (ctx.crawl.allTestIds.length > 50 ? " ..." : ""));
+    sections.push("");
+  }
+
+  if (ctx.similarTests.length > 0) {
+    sections.push("## Reference tests (first 15 lines each)\n");
+    for (const t of ctx.similarTests) {
+      sections.push(`### ${t.testName} (from ${t.filePath})\n`);
+      sections.push("```ts");
+      sections.push(t.excerpt.split("\n").slice(0, 15).join("\n") + (t.excerpt.split("\n").length > 15 ? "\n  ..." : ""));
+      sections.push("```\n");
+    }
+  }
+
+  return sections.join("\n");
+}
+
+function truncateSignature(sig: string): string {
+  return sig.length > 100 ? sig.slice(0, 97) + "..." : sig;
+}
 
 export function buildContext(catalogue: Catalogue, request: GenRequest): BuiltContext {
   const domain = request.domain ?? inferDomainFromRequest(request.description, catalogue);

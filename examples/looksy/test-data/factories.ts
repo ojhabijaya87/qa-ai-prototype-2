@@ -100,7 +100,12 @@ export const VARIANTS = {
     colorId: "bone",
     size: "M",
   } as ProductVariant,
-
+ASHFORD_OVERCOAT_INK_S: {
+  productId: "p-001",
+  productSlug: "ashford-overcoat",
+  colorId: "ink",
+  size: "S",
+} as ProductVariant,
   /** Linden Relaxed Tee, ink colour, size M. Stock: 15 (high). */
   TEE_INK_M: {
     productId: "p-004",
@@ -116,6 +121,13 @@ export const VARIANTS = {
     colorId: "storm",
     size: "L",
   } as ProductVariant,
+
+KNIT_BONE_S: {
+  productId: "p-002",
+  productSlug: "fennel-fisherman-knit",
+  colorId: "bone",
+  size: "S",
+} as ProductVariant,
 
   /**
    * North Leather Boot, ink colour, size M. Stock: 0 across ALL variants.
