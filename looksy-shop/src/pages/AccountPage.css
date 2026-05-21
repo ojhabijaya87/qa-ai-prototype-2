@@ -1,0 +1,161 @@
+.account-page {
+  padding: var(--space-7) 0 var(--space-9);
+}
+
+.account-header {
+  text-align: center;
+  margin-bottom: var(--space-7);
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--c-line);
+}
+
+.account-header > p:first-child {
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+}
+
+.account-title {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-style: italic;
+  font-weight: 300;
+  letter-spacing: -0.025em;
+  margin-top: var(--space-2);
+}
+
+.account-signin-card {
+  max-width: 480px;
+  margin: 0 auto;
+  background: var(--c-bg-elev);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-sm);
+  padding: var(--space-7);
+}
+
+.account-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr;
+  gap: var(--space-6);
+}
+
+.account-info-card,
+.account-orders-card {
+  background: var(--c-bg-elev);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-sm);
+  padding: var(--space-6);
+  align-self: start;
+}
+
+.account-card-title {
+  font-size: 1.5rem;
+  font-style: italic;
+  font-weight: 400;
+  margin-bottom: var(--space-5);
+}
+
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.account-club-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.account-club-checkbox:has(input:checked) {
+  border-color: var(--c-ink);
+  background: var(--c-line-soft);
+}
+
+.account-club-checkbox input {
+  margin-top: 4px;
+  cursor: pointer;
+}
+
+.account-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.account-details > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.account-details dt {
+  font-size: 0.65rem;
+  letter-spacing: 0.15em;
+}
+
+.account-details dd {
+  font-size: 1rem;
+}
+
+.account-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--c-line-soft);
+}
+
+.account-orders-empty {
+  text-align: center;
+  padding: var(--space-7) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.account-orders-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.account-order {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--c-line-soft);
+}
+
+.account-order:last-child {
+  border-bottom: none;
+}
+
+.account-order-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.account-order-id {
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.account-order-total {
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+@media (max-width: 1024px) {
+  .account-grid { grid-template-columns: 1fr; }
+}
